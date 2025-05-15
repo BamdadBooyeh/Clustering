@@ -1,0 +1,546 @@
+---
+title: 
+author: 
+output:
+    html_document:
+      self_contained: yes
+      theme: bootstrap
+      toc: true
+      toc_float: true
+      code_folding: hide
+editor_options: 
+  markdown: 
+    wrap: 72
+    
+---
+# Data Mining Assignment (Clustering)
+
+We have chosen two datasets to apply our clustering algorithms to.
+
+## Jain Dataset
+
+The Jain dataset is a synthetic dataset commonly used for evaluating clustering algorithms. It has the following characteristics:
+
+	•	Number of Data Points (N): 373
+	•	Number of Clusters (k): 2
+	•	Dimensionality (D): 2
+	
+We chose the Jain dataset for this analysis because it is a relatively simple dataset with only two clusters, making it an ideal starting point for testing clustering algorithms. Its straightforward structure allows us to easily evaluate the performance of algorithms like EM and K-means on a dataset with well-defined clusters. 
+
+
+
+```{r,message=FALSE, warning=FALSE}
+
+
+library(caret)
+library(mclust)
+library(cluster)
+library(clue)
+library(clusterSim)
+library(ggplot2)
+library(factoextra)
+library(clusterCrit)
+library(dbscan)
+library(gridExtra)
+library(aricode)
+
+# Load and prepare Jain dataset
+data <- as.matrix(read.table("~/Downloads/JainData.txt", sep = ","))
+X <- data[, -3]
+true_labels <- factor(data[, 3])
+# Create a data frame from X
+df <- data.frame(X1 = X[, 1], X2 = X[, 2])
+
+ggplot(df, aes(x = X1, y = X2)) +
+ 
+  geom_point(alpha = 0.5, color = "red3", size=5) + 
+  ggtitle("2D Scatter Plot Jain Dataset") +
+  theme_minimal() +  # Minimal theme for cleaner appearance
+  theme(legend.position = "none")
+```
+
+### K-means Clustering on Jain Dataset
+
+```{r}
+# Align predicted clusters to true labels
+map_clusters <- function(true, predicted) {
+  tbl <- table(true, predicted)
+  if (ncol(tbl) != 2) stop("Only supports 2 clusters")
+  if (tbl[1,1] + tbl[2,2] < tbl[1,2] + tbl[2,1]) {
+    predicted <- ifelse(predicted == 1, 2, 1)
+  }
+  return(predicted)
+}
+```
+
+```{r,message=FALSE, warning=FALSE}
+set.seed(25)
+k <- 2
+n <- nrow(X)
+max_iter <- 100
+
+# Step 1: Initialize centers randomly
+init_indices <- sample(1:n, k)
+centers <- X[init_indices, ]
+
+# Storage
+cluster_assignments <- rep(0, n)
+
+for (iter in 1:max_iter) {
+  # Step 2: Assign each point to the nearest center
+  for (i in 1:n) {
+    dists <- apply(centers, 1, function(center) sum((X[i, ] - center)^2))
+    cluster_assignments[i] <- which.min(dists)
+  }
+
+  # Step 3: Recalculate centers
+  new_centers <- matrix(0, nrow = k, ncol = ncol(X))
+  for (j in 1:k) {
+    points_in_cluster <- X[cluster_assignments == j, , drop = FALSE]
+    if (nrow(points_in_cluster) > 0) {
+      new_centers[j, ] <- colMeans(points_in_cluster)
+    } else {
+      new_centers[j, ] <- X[sample(1:n, 1), ]  # Handle empty cluster
+    }
+  }
+
+  # Step 4: Check for convergence
+  if (all(abs(new_centers - centers) < 1e-6)) {
+    break
+  }
+  centers <- new_centers
+}
+# Map predicted clusters to true labels
+assignments_kmeans <- map_clusters(true_labels, cluster_assignments)
+
+# Confusion Matrix
+conf_matrix_kmeans <- confusionMatrix(factor(assignments_kmeans), true_labels)
+
+# ARI
+ari_kmeans <- adjustedRandIndex(true_labels, assignments_kmeans)
+
+# Silhouette
+sil_kmeans <- silhouette(assignments_kmeans, dist(X))
+mean_sil_kmeans <- mean(sil_kmeans[, 3])
+
+
+
+
+nmi_kmeans <- NMI(true_labels, assignments_kmeans)
+
+# Plot True Labels
+plot(X, col = true_labels, pch = 19, main = "True Labels", xlab = "X1", ylab = "X2")
+
+# Plot Manual K-means Results
+plot(X, col = assignments_kmeans, pch = 19, main = "Manual K-means Clustering", xlab = "X1", ylab = "X2")
+points(centers, col = 1:k, pch = 4, cex = 2, lwd = 3)
+legend("topright", legend = c("Cluster 1", "Cluster 2"), col = 1:2, pch = 19)
+
+mtext(paste("Parameters: k =", k,
+            "| Max Iter =", max_iter,
+            "| Seed =", 42,
+            "| Silhouette =", round(mean_sil_kmeans, 3),
+            "| ARI =", round(ari_kmeans, 3),
+            "| NMI =", round(nmi_kmeans, 3)),
+      side = 1, line = 4, cex = 0.8)
+
+cat("Manual K-means ARI:", round(ari_kmeans, 3), "\n")
+cat("Manual K-means Silhouette Coefficient:", round(mean_sil_kmeans, 3), "\n")
+cat("Manual K-means NMI:", round(nmi_kmeans, 3), "\n")
+
+print(conf_matrix_kmeans)
+```
+
+**For the Jain dataset, we applied the K-means clustering algorithm and obtained the following results:**
+
+	•	Accuracy: The algorithm correctly classified 77.48% of the data points, showing that it can effectively group data into the correct clusters overall.
+	
+	•	Adjusted Rand Index (ARI): The ARI score of 0.3 indicates a moderate agreement between the true labels and the predicted       clusters. An ARI closer to 1 would indicate perfect clustering, while 0 suggests random clustering, so 0.3 suggests some room for   improvement.
+	
+	•	Silhouette Coefficient: The Silhouette Coefficient of 0.495 indicates that the clustering results are moderately well-separated, but there is some overlap between clusters. Values closer to 1 indicate clear, well-separated clusters, while values closer to 0 indicate overlapping clusters.
+	
+	• Normalized Mutual Information (NMI):The NMI score of 0.337 indicates a moderate amount of shared information between the true labels and the predicted clusters.While an NMI of 1 would represent perfect clustering alignment, a value of 0.337 suggests that the clustering captures some structure but leaves considerable room for improvement in terms of matching the true class distribution.
+
+	•	Specificity: The algorithm was highly successful at identifying the negative class (cluster 0) with a specificity of 0.9897, meaning it was very good at correctly identifying non-positive points.
+	
+	•	Sensitivity: The sensitivity of 0.6993 shows that the algorithm correctly identified the positive class (cluster 1) in around 70% of cases.
+
+### K-means + PCA 
+
+```{r,message=FALSE, warning=FALSE}
+X_scaled <- scale(X)
+pca_result <- prcomp(X_scaled)
+X_pca <- pca_result$x[, 1:2]
+
+km_pca <- kmeans(X_pca, centers = 2, nstart = 25)
+aligned_km_pca <- map_clusters(true_labels, km_pca$cluster)
+nmi_km_pca <- NMI(true_labels, aligned_km_pca)
+conf_matrix_km_pca <- confusionMatrix(factor(aligned_km_pca), true_labels)
+ari_km_pca <- adjustedRandIndex(true_labels, aligned_km_pca)
+sil_km_pca <- silhouette(aligned_km_pca, dist(X_pca))
+mean_sil_km_pca <- mean(sil_km_pca[, 3])
+# Plot True Labels after PCA
+plot(X_pca, col = true_labels, pch = 19, main = "True Labels (after PCA)", xlab = "PC1", ylab = "PC2")
+
+# Plot K-means+PCA Results
+plot(X_pca, col = aligned_km_pca, pch = 19, main = "K-means + PCA", xlab = "PC1", ylab = "PC2")
+points(km_pca$centers, col = 1:k, pch = 4, cex = 2, lwd = 3)
+
+mtext(paste("Silhouette =", round(mean_sil_km_pca, 3),
+            "| ARI =", round(ari_km_pca, 3),
+            "| NMI =", round(nmi_km_pca, 3)),
+      side = 1, line = 4, cex = 0.8)
+
+# Print metrics
+cat("K-means + PCA ARI:", round(ari_km_pca, 3), "\n")
+cat("K-means + PCA Silhouette Coefficient:", round(mean_sil_km_pca, 3), "\n")
+print(conf_matrix_km_pca)
+```
+	
+**Even though there are only two dimensions, PCA can still improve clustering because it helps reframe the data in terms of its most important features (principal components), reduces noise and redundancy, and improves how K-means interprets the clusters. Essentially, PCA is helping to better expose the structure in the data that the clustering algorithm can leverage, leading to better results in terms of accuracy, sensitivity, and adjusted Rand index (ARI).**
+
+**The results from normal K-mean is not satisfying so we applied PCA to the K-means clustering algorithm and obtained the following results:**
+
+	•	Accuracy: The algorithm correctly classified 87.4% of the data points, showing that it effectively groups data into the correct clusters overall. This is a high level of accuracy, indicating that the clustering model is performing well.
+	
+	•	Adjusted Rand Index (ARI): The ARI score of 0.553 indicates a moderate to strong agreement between the true labels and the     predicted clusters. An ARI closer to 1 would indicate perfect clustering, so the value of 0.553 suggests a decent clustering performance, but there’s room for improvement in aligning the clusters with the true labels.
+	
+	•	Silhouette Coefficient: The Silhouette Coefficient of 0.504 indicates that the clusters are moderately well-separated, but there may still be some overlap or ambiguity between clusters. This value suggests that while the clustering is reasonable, further refinement may be needed to better separate the groups.
+	
+	•	Normalized Mutual Information (NMI): The NMI score of 0.476 reflects a moderate-to-good level of agreement between the predicted clusters and the true labels. Although it is not close to perfect (which would be an NMI of 1), a value of 0.476 shows that the clustering captured a meaningful amount of the underlying structure, with better separation compared to lower NMI values.
+
+	•	Specificity: The algorithm was highly successful at identifying the negative class (cluster 2) with a specificity of 0.9897. This means that it correctly identified non-positive points in the majority of cases.
+	
+	•	Sensitivity: The sensitivity of 0.8333 shows that the algorithm correctly identified the positive class (cluster 1) in approximately 83.33% of cases, which indicates a high detection rate for the positive class.
+
+		
+### EM on Jain dataset
+
+**We used the EM algorithm with the Gaussian Mixture Model (GMM) to cluster the data as our next algorithm. GMM assumes the data is a mixture of several Gaussian distributions, making it ideal for identifying elliptical clusters. This method provides probabilistic cluster assignments, allowing us to account for uncertainty and overlap in the data.**
+
+```{r,message=FALSE, warning=FALSE}
+
+
+# --- Load Jain Dataset ---
+jain_url <- "https://cs.joensuu.fi/sipu/datasets/jain.txt"
+jain_data <- read.table(jain_url, header = FALSE)
+
+# --- Separate Features and Labels ---
+X <- jain_data[, 1:2]               # Features (X, Y)
+true_labels <- as.factor(jain_data[, 3])  # True labels (column 3)
+
+# --- Apply PCA (Optional Step for Higher Dimensionality Datasets) ---
+# If you want to apply PCA, it would be especially useful for higher-dimensional data.
+
+
+# --- EM Clustering (GMM) ---
+gmm_model <- Mclust(X, G = 2)  # Using PCA-transformed data for GMM
+
+# --- Get Posterior Probabilities (Uncertainty) ---
+posterior_probs <- gmm_model$z  # Posterior probabilities of belonging to each cluster
+uncertainty <- 1 - apply(posterior_probs, 1, max)  # Uncertainty is the inverse of max probability
+
+# --- Plotting Uncertainty ---
+df_plot <- data.frame(X1 = X[,1], X2 = X[,2], Uncertainty = uncertainty)
+
+# Uncertainty plot (low uncertainty = confident assignment, high uncertainty = more overlap)
+uncertainty_plot <- ggplot(df_plot, aes(x = X1, y = X2, color = Uncertainty)) +
+  geom_point(size = 2) +
+  scale_color_gradient(low = "blue", high = "red") +
+  ggtitle("Clustering Uncertainty (GMM)") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# --- Plot True and Predicted Labels for Comparison ---
+predicted_clusters <- as.factor(gmm_model$classification)
+predicted_clusters <- as.factor(ifelse(predicted_clusters == 1, 2, 1))
+df_labels_plot <- data.frame(X1 = X[,1], X2 = X[,2], True_Label = true_labels, Predicted = predicted_clusters)
+
+plot_true <- ggplot(df_labels_plot, aes(x = X1, y = X2, color = True_Label)) +
+  geom_point(size = 2) +
+  ggtitle("True Labels") +
+  theme_minimal() + 
+  theme(legend.position = "none")
+
+plot_pred <- ggplot(df_labels_plot, aes(x = X1, y = X2, color = Predicted)) +
+  geom_point(size = 2) +
+  ggtitle("Predicted Clusters (GMM)") +
+  theme_minimal() + 
+  theme(legend.position = "none")
+
+# Arrange the first two plots side by side, leaving the uncertainty plot as a separate plot
+grid.arrange(plot_true, plot_pred, ncol = 2)
+
+
+# --- Silhouette Score ---
+sil <- silhouette(as.numeric(predicted_clusters), dist(X))
+mean_silhouette <- mean(sil[, 3])
+cat("Mean Silhouette Score:", round(mean_silhouette, 3), "\n")
+
+# --- Confusion Matrix ---
+confusion <- confusionMatrix(predicted_clusters, true_labels)
+print(confusion)
+
+nmi_score <- NMI(true_labels, predicted_clusters)
+cat("Normalized Mutual Information (NMI):", round(nmi_score, 3), "\n")
+
+
+```
+	•	Accuracy: The clustering model achieved an accuracy of 57.91%, meaning that slightly more than half of the data points were correctly assigned to their respective clusters. This is a relatively modest level of accuracy, suggesting that the clustering could be improved to better capture the true structure of the data.
+
+	•	Silhouette Coefficient: A silhouette score of 0.448 suggests that the clusters have a moderate but imperfect separation. Although better than complete overlap, there is still considerable mixing between clusters, and the structure is not very strong.
+
+	•	Normalized Mutual Information (NMI): The NMI value of 0.192 points to a low level of shared information between the true labels and the predicted clusters. This indicates that the clustering captured only a small part of the underlying structure, with significant room for improvement.
+	
+	•	Specificity: With a specificity of 1.0000, the model was perfect at correctly identifying the negative class (cluster 2). It did not mistakenly classify any negative examples as positive.
+
+	•	Sensitivity: A sensitivity of 0.4312 indicates that the model correctly detected the positive class (cluster 1) in about 43.12% of cases. This reflects a low true positive rate, meaning many positive instances were misclassified
+
+```{r,message=FALSE, warning=FALSE}
+print(uncertainty_plot) 
+```
+
+
+
+**Visualizing the uncertainty**
+
+
+The uncertainty values highlight regions where the GMM is less confident in cluster assignments, often corresponding to overlaps between Gaussians. This contrasts with hard clustering methods like K-means, which obscure such nuances.
+	
+### Conclusion
+
+
+**K-means is a decent clustering algorithm but could benefit from some optimizations, as evidenced by the moderate ARI and             Silhouette Coefficient.**
+		
+**K-means + PCA significantly improved accuracy, ARI, and sensitivity, suggesting that the dimensionality reduction step helped       the algorithm better separate and classify the clusters, especially the positive class.**
+		
+**Both methods showed excellent specificity, meaning they are both good at identifying the negative class.**
+		
+**The EM algorithm (GMM) found some structure in the data, though its performance was not as strong as K-means + PCA , with lower ARI and Silhouette scores. It showed some potential in capturing underlying patterns, but overall, it did not provide a substantial improvement over the other methods.**
+
+
+## R15 Dataset
+
+The R15 dataset is a synthetic dataset commonly used for evaluating clustering algorithms. It has the following characteristics:
+
+	•	Number of Data Points (N): 600
+	•	Number of Clusters (k): 15
+	•	Dimensionality (D): 2
+
+Unlike the Jain dataset, which has a smaller number of clusters, the R15 dataset features a larger number of clusters, making it an ideal tool for showcasing the ability to handle clustering tasks with varying cluster counts and shapes. This dataset provides a good challenge for testing clustering techniques like DBSCAN, K-means, and others, regardless of the number of clusters or their structure.
+
+
+
+```{r,message=FALSE, warning=FALSE}
+data <- as.matrix(read.table("~/Downloads/R15dataset.txt"))
+X <- data[, -3]  
+true_labels <- data[, 3] 
+# Create a data frame from X
+df <- data.frame(X1 = X[, 1], X2 = X[, 2])
+
+# Create the plot
+ggplot(df, aes(x = X1, y = X2)) +
+  # Plot points with transparency (alpha controls the fading)
+  geom_point(alpha = 0.5, color = "blue", size=5) + 
+  ggtitle("2D Scatter Plot R15 Dataset") +
+  theme_minimal() +  # Minimal theme for cleaner appearance
+  theme(legend.position = "none")
+```
+
+
+### K-mean R15 
+
+```{r,message=FALSE, warning=FALSE}
+map_clusters <- function(true_labels, predicted_clusters) {
+  contingency <- table(true_labels, predicted_clusters)
+  mapping <- solve_LSAP(contingency, maximum = TRUE)
+  mapped <- mapping[predicted_clusters]
+  return(mapped)
+}
+```
+
+```{r,message=FALSE, warning=FALSE}
+# Manual K-means
+set.seed(42)
+k <- 15
+n <- nrow(X)
+max_iter <- 100
+
+init_indices <- sample(1:n, k)
+centers <- X[init_indices, ]
+cluster_assignments <- rep(0, n)
+
+for (iter in 1:max_iter) {
+  # Assign each point to nearest center
+  for (i in 1:n) {
+    dists <- apply(centers, 1, function(center) sum((X[i, ] - center)^2))
+    cluster_assignments[i] <- which.min(dists)
+  }
+
+  # Recompute centers
+  new_centers <- matrix(0, nrow = k, ncol = ncol(X))
+  for (j in 1:k) {
+    cluster_points <- X[cluster_assignments == j, , drop = FALSE]
+    if (nrow(cluster_points) > 0) {
+      new_centers[j, ] <- colMeans(cluster_points)
+    } else {
+      new_centers[j, ] <- X[sample(1:n, 1), ]
+    }
+  }
+
+  # Convergence check
+  if (all(abs(new_centers - centers) < 1e-6)) break
+  centers <- new_centers
+}
+
+# Evaluation metrics
+assignments_kmeans <- map_clusters(true_labels, cluster_assignments)
+ari_kmeans <- adjustedRandIndex(true_labels, assignments_kmeans)
+nmi_kmeans <- NMI(true_labels, assignments_kmeans)
+sil_kmeans <- silhouette(assignments_kmeans, dist(X))
+mean_sil_kmeans <- mean(sil_kmeans[, 3])
+
+# Plot clustering results
+palette <- rainbow(k)
+plot(X, col = assignments_kmeans, pch = 19, main = "K-means Clustering (k = 15)", xlab = "X1", ylab = "X2")
+points(centers, col = 1:k, pch = 4, cex = 2, lwd = 2)
+
+mtext(paste("Parameters: k =", k,
+            "| Max Iter =", max_iter,
+            "| Seed =", 42,
+            "| Silhouette =", round(mean_sil_kmeans, 3),
+            "| ARI =", round(ari_kmeans, 3),
+            "| NMI =", round(nmi_kmeans, 3)),
+      side = 1, line = 4, cex = 0.8)
+# Plot Silhouette Scores for Clusters
+sil_score <- sil_kmeans[, 3]  # Silhouette scores for each data point
+sil_df <- data.frame(Cluster = factor(assignments_kmeans), Silhouette = sil_score)
+
+# Plot the silhouette scores for each cluster
+library(ggplot2)
+ggplot(sil_df, aes(x = Cluster, y = Silhouette, fill = Cluster)) +
+  geom_boxplot() +
+  geom_hline(yintercept = mean_sil_kmeans, color = "red", linetype = "dashed") +
+  ggtitle("Silhouette Scores for Each Cluster") +
+  xlab("Cluster") + ylab("Silhouette Score") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+**The Manual K-means clustering on the R15 dataset achieved strong results:**
+
+	• ARI = 0.89: This indicates a high agreement between the predicted clusters and true labels, reflecting accurate clustering.
+	
+	• Silhouette Coefficient = 0.685: This suggests moderate separation between clusters, with some potential overlap.
+	
+	• NMI = 0.949: This indicates an excellent level of shared information between the predicted clusters and the true labels, showing that the clustering captured almost all of the underlying structure.
+
+
+**The clustering results show that the Manual K-means algorithm is well-suited for the R15 dataset, providing a strong clustering performance with high Adjusted Rand Index and good Silhouette Coefficient scores. However, there is always room for improvement, especially when working with more complex data or when trying to achieve near-perfect clustering.**
+
+
+### DBSCAN R15 
+
+**We apply DBSCAN to the R15 dataset to uncover clusters and detect outliers without predefining the number of clusters. DBSCAN is chosen for its ability to handle data with varying densities and noise, also for trying different methods and see their results**
+
+
+```{r}
+data <- as.matrix(read.table("~/Downloads/R15dataset.txt"))
+X <- data[, -3]  
+true_labels <- data[, 3] 
+
+# --- DBSCAN Clustering ---
+eps_value <- 0.4
+minPts_value <- 8
+dbscan_result <- dbscan(X, eps = eps_value, minPts = minPts_value)
+
+df_true <- data.frame(X1 = X[,1], X2 = X[,2], Label = as.factor(true_labels))
+df_dbscan <- data.frame(X1 = X[,1], X2 = X[,2], Label = as.factor(dbscan_result$cluster))
+
+# --- Metrics Calculation ---
+# Filter out noise points (cluster = 0)
+valid_indices <- dbscan_result$cluster != 0
+true_f <- factor(true_labels[valid_indices])
+pred_f <- factor(dbscan_result$cluster[valid_indices], levels = levels(true_f))
+
+# Confusion Matrix
+conf_matrix_dbscan <- confusionMatrix(pred_f, true_f)
+
+
+# Silhouette Score
+sil_dbscan <- silhouette(dbscan_result$cluster[valid_indices], dist(X[valid_indices, ]))
+mean_sil_dbscan <- mean(sil_dbscan[, 3])
+cat("DBSCAN Silhouette Score:", round(mean_sil_dbscan, 3), "\n")
+
+# Adjusted Rand Index (ARI)
+ari_dbscan <- adjustedRandIndex(true_labels[valid_indices], dbscan_result$cluster[valid_indices])
+cat("Adjusted Rand Index (ARI):", round(ari_dbscan, 3), "\n")
+
+# Normalized Mutual Information (NMI)
+nmi_dbscan <- NMI(true_labels[valid_indices], dbscan_result$cluster[valid_indices])
+cat("Normalized Mutual Information (NMI):", round(nmi_dbscan, 3), "\n")
+
+# Number of Noise Points
+num_noise_points <- sum(dbscan_result$cluster == 0)
+cat("Number of noise points:", num_noise_points, "\n")
+
+
+# Plot True Labels
+plot_true <- ggplot(df_true, aes(x = X1, y = X2, color = Label)) +
+  geom_point(size = 2) +
+  ggtitle("True Labels") +
+  scale_color_discrete(name = "True Labels") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Plot DBSCAN Clustering Results with Parameters and Metrics
+plot_dbscan <- ggplot(df_dbscan, aes(x = X1, y = X2, color = Label)) +
+  geom_point(size = 2) +
+  ggtitle("DBSCAN Clustering") +
+  scale_color_discrete(name = "DBSCAN Clusters") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  annotate("text", x = Inf, y = Inf, hjust = 1.1, vjust = 1.5, size = 4, color = "black",
+           label = paste("eps =", eps_value,
+                         "\nminPts =", minPts_value,
+                         "\nSilhouette =", round(mean_sil_dbscan, 3),
+                         "\nARI =", round(ari_dbscan, 3),
+                         "\nNMI =", round(nmi_dbscan, 3)))
+
+# Side-by-side plots
+print(plot_true)
+print(plot_dbscan)
+# --- Silhouette Plot ---
+fviz_silhouette(sil_dbscan)
+print(conf_matrix_dbscan)
+```
+
+
+**Confusion Matrix:**
+	•	The confusion matrixprovided reflects the prediction accuracy for points that are assigned to a cluster. Since outliers (i.e., noise points) are not included in the confusion matrix, the results show only the points that were successfully clustered.
+	•	High accuracy: The model is performing exceptionally well with an accuracy of 99.65%. This suggests that most of the points (those not classified as noise) are being clustered correctly.
+	
+**Outliers:**
+	•	The number of noise points is 23. These are the points that DBSCAN couldn’t assign to any cluster because they were too far from other data points. While these points are excluded from the confusion matrix, they are still important when evaluating clustering quality.
+	
+**Adjusted Rand Index (ARI):**
+	•	The ARI of 0.992 is excellent. It means the DBSCAN clustering is very similar to the true cluster structure. The ARI takes into account the similarity between predicted clusters and true labels, adjusted for chance, and an ARI score close to 1 indicates near-perfect clustering.
+		
+**Silhouette Score:**
+	•	The Silhouette score of 0.767 is a strong indicator of how well the clusters are formed, showing good separation and compactness for the clustered points
+
+**Normalized Mutual Information (NMI) :**
+•	The NMI of 0.994 is excellent. This indicates an extremely high mutual dependence between the true labels and the predicted clusters, confirming that the clustering preserved almost all the original label information.
+	
+**Class-Specific Metrics:**
+	•	The sensitivity, specificity, and positive/negative predictive values are all very high across the different clusters. This indicates that the model is correctly identifying most points from each class without misclassification.
+	•	The balanced accuracy for each class is also near perfect (close to 1), which is another sign of good performance across all clusters.
+	
+	
+### Conclusion
+	
+**The Manual K-means algorithm achieved strong clustering performance on the R15 dataset, with high ARI, NMI, and a good Silhouette score. It demonstrated a strong ability to separate clusters, although some minor overlap was observed, suggesting there is still room for optimization, especially in more complex scenarios.**
+
+**DBSCAN outperformed Manual K-means, delivering near-perfect clustering results with higher ARI, NMI, and a better Silhouette score. Its ability to automatically detect clusters of varying densities without needing to predefine the number of clusters proved highly effective, and it successfully identified outliers as noise points.**
+
+**Overall, while Manual K-means provided a solid baseline with good clustering quality, DBSCAN proved to be more robust and adaptive for the R15 dataset, especially when dealing with noise and complex cluster structures.**
+
