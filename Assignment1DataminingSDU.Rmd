@@ -1,6 +1,6 @@
 ---
-title: 
-author: 
+title: Clustering
+author: Bamdad Booyeh
 output:
     html_document:
       self_contained: yes
